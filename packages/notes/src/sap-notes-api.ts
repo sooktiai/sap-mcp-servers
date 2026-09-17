@@ -145,7 +145,7 @@ export class SapNotesApiClient {
   private readonly COVEO_TOKEN_TTL = 14 * 60 * 1000; // Cache for 14 minutes (conservative)
 
   // S3-backed cache of previously fetched note details, keyed by note ID.
-  private readonly noteCache = new SapNoteS3Cache();
+  private readonly noteCache: SapNoteS3Cache;
 
   // SAP for Me backend requests use Playwright's authenticated HTTP context. Unlike
   // native fetch, it can initialize directly from Playwright storage state and receives
@@ -155,6 +155,7 @@ export class SapNotesApiClient {
 
   constructor(config: ServerConfig) {
     this.config = config;
+    this.noteCache = new SapNoteS3Cache();
   }
 
   private async loadBackendStorageState(
@@ -494,7 +495,7 @@ export class SapNotesApiClient {
     if (cached) return cached;
 
     const note = await this.fetchNoteFromSap(noteId, token);
-    if (note) await this.noteCache.set(noteId, note);
+    if (note) void this.noteCache.set(noteId, note);
     return note;
   }
 
