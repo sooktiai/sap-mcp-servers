@@ -28,6 +28,10 @@ sso-storage-state.json
 debug-*.png
 debug-*.js
 
+# Tesseract OCR language models — auto-downloaded by tesseract.js (via
+# officeparser) on first OCR call, not source
+*.traineddata
+
 # Logs
 *.log
 logs/

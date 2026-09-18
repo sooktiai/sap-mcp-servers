@@ -20,6 +20,8 @@ import {
   SAP_NOTE_GET_DESCRIPTION
 } from './schemas/sap-notes.js';
 import { parseNoteContent } from './html-utils.js';
+import { withAttachmentResourceUris } from './sap-notes-backend.js';
+import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 // Get the directory of this module for resolving paths
 const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +74,7 @@ class SapNoteMcpServer {
     });
 
     this.setupTools();
+    this.setupResources();
   }
 
   /**
@@ -303,7 +306,7 @@ class SapNoteMcpServer {
           if (noteDetail.correctionsSummary?.length) output.correctionsSummary = noteDetail.correctionsSummary;
           if ((noteDetail as any).correctionDetails?.length) output.correctionDetails = (noteDetail as any).correctionDetails;
           if (noteDetail.manualActions) output.manualActions = noteDetail.manualActions;
-          if (noteDetail.attachments?.length) output.attachments = noteDetail.attachments;
+          if (noteDetail.attachments?.length) output.attachments = withAttachmentResourceUris(id, noteDetail.attachments);
           if (noteDetail.downloadUrl) output.downloadUrl = noteDetail.downloadUrl;
 
           // Format display text
@@ -357,6 +360,59 @@ class SapNoteMcpServer {
             isError: true
           };
         }
+      }
+    );
+  }
+
+  /**
+   * Setup MCP resources — attachments referenced from a note's fetch() output.
+   */
+  private setupResources(): void {
+    this.mcpServer.registerResource(
+      'note-attachment',
+      new ResourceTemplate('notes://{noteId}/attachments/{filename}', { list: undefined }),
+      {
+        title: 'SAP Note Attachment',
+        description: 'A SAP Note attachment, converted to Markdown when possible (falls back to raw bytes for images and other formats officeparser cannot convert).'
+      },
+      async (uri, variables) => {
+        const noteId = String(variables.noteId);
+        const filename = decodeURIComponent(String(variables.filename));
+
+        const noteDetail = await this.withAuthRetry(token => this.sapNotesClient.getNote(noteId, token));
+        const attachment = noteDetail?.attachments?.find(a => a.filename === filename);
+        if (!attachment?.url) {
+          throw new Error(`Attachment "${filename}" not found on SAP Note ${noteId}`);
+        }
+
+        const result = await this.withAuthRetry(token =>
+          this.sapNotesClient.getAttachment(noteId, filename, attachment.url!, token)
+        );
+
+        if (result.markdown) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'text/markdown',
+              text: result.markdown
+            }]
+          };
+        }
+
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: 'text/plain',
+              text: `Attachment "${filename}" could not be converted to Markdown — returning raw bytes below.`
+            },
+            {
+              uri: uri.href,
+              mimeType: result.raw.contentType || 'application/octet-stream',
+              blob: result.raw.base64
+            }
+          ]
+        };
       }
     );
   }

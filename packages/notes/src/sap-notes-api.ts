@@ -1,6 +1,7 @@
-import type { ServerConfig } from './types.js';
+import type { ServerConfig, SapNoteAttachmentResult } from './types.js';
 import { logger } from './logger.js';
 import { SapNoteS3Cache } from './note-s3-cache.js';
+import { NoteAttachmentS3Cache } from './note-attachment-s3-cache.js';
 import { existsSync } from 'fs';
 import {
   chromium,
@@ -147,6 +148,9 @@ export class SapNotesApiClient {
   // S3-backed cache of previously fetched note details, keyed by note ID.
   private readonly noteCache: SapNoteS3Cache;
 
+  // S3-backed cache of previously fetched attachment bytes, keyed by note ID + filename.
+  private readonly attachmentCache: NoteAttachmentS3Cache;
+
   // SAP for Me backend requests use Playwright's authenticated HTTP context. Unlike
   // native fetch, it can initialize directly from Playwright storage state and receives
   // backend JSON without retaining a browser process.
@@ -156,6 +160,7 @@ export class SapNotesApiClient {
   constructor(config: ServerConfig) {
     this.config = config;
     this.noteCache = new SapNoteS3Cache();
+    this.attachmentCache = new NoteAttachmentS3Cache();
   }
 
   private async loadBackendStorageState(
@@ -497,6 +502,81 @@ export class SapNotesApiClient {
     const note = await this.fetchNoteFromSap(noteId, token);
     if (note) void this.noteCache.set(noteId, note);
     return note;
+  }
+
+  /**
+   * Fetches a note attachment by filename (using the S3 cache when
+   * available) and converts it to Markdown when the extension is one
+   * officeparser supports. Unsupported extensions (images, etc.) fall back
+   * to raw bytes — see SapNoteAttachmentResult.
+   */
+  async getAttachment(
+    noteId: string,
+    filename: string,
+    url: string,
+    token: string
+  ): Promise<SapNoteAttachmentResult> {
+    const cached = await this.attachmentCache.get(noteId, filename);
+    if (cached) {
+      return {
+        filename,
+        markdown: cached.markdown,
+        raw: { base64: cached.buffer.toString('base64'), contentType: cached.contentType }
+      };
+    }
+
+    const { buffer, contentType } = await this.downloadAttachment(url, token);
+    void this.attachmentCache.set(noteId, filename, buffer, contentType);
+    const markdown = await this.attachmentCache.convertToMarkdown(filename, buffer);
+
+    return {
+      filename,
+      markdown,
+      raw: { base64: buffer.toString('base64'), contentType }
+    };
+  }
+
+  /**
+   * Downloads an attachment's raw bytes from its SAP-hosted URL, using the
+   * same authenticated session cookie getNote() uses. Some attachment hosts
+   * (documents.support.sap.com) respond with a cross-domain SAML sign-in
+   * page instead of the file — detected via the same
+   * isAuthenticationBootstrapResponse() check the note-fetch paths already
+   * use — in which case this throws rather than caching that page as if it
+   * were the attachment.
+   */
+  private async downloadAttachment(url: string, token: string): Promise<{ buffer: Buffer; contentType?: string }> {
+    const direct = await this.downloadAttachmentDirect(url, token);
+
+    const preview = direct.buffer.toString('utf8', 0, 5000);
+    if (isAuthenticationBootstrapResponse(direct.status, direct.contentType, preview)) {
+      throw new Error(`Attachment could not be fetched — SAP required a browser sign-in for ${url}`);
+    }
+
+    return direct;
+  }
+
+  private async downloadAttachmentDirect(url: string, token: string): Promise<{ buffer: Buffer; contentType?: string; status: number }> {
+    logger.debug(`🌐 Downloading attachment: ${url}`);
+
+    const response = await fetch(url, {
+      headers: {
+        'Cookie': token,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': '*/*'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Attachment download failed (${response.status}) for ${url}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType: response.headers.get('content-type') ?? undefined,
+      status: response.status
+    };
   }
 
   /**

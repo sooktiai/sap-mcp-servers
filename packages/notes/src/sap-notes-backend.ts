@@ -112,6 +112,21 @@ export function extractSapNotesBackendError(payload: unknown): SapNotesBackendEr
   return code || message ? { code, message } : null;
 }
 
+/**
+ * Attaches each attachment's MCP resource URI (notes://{noteId}/attachments/{filename})
+ * so a client that already called fetch(id=noteId) can read the attachment next,
+ * without needing to construct the URI itself.
+ */
+export function withAttachmentResourceUris(
+  noteId: string,
+  attachments: Array<{ filename: string; url?: string }>
+): Array<{ filename: string; url?: string; resourceUri: string }> {
+  return attachments.map(attachment => ({
+    ...attachment,
+    resourceUri: `notes://${noteId}/attachments/${encodeURIComponent(attachment.filename)}`
+  }));
+}
+
 export function isAuthenticationBootstrapResponse(
   status: number,
   contentType: string | undefined,
