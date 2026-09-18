@@ -53,23 +53,23 @@ export class NoteAttachmentS3Cache {
   }
 
   /**
-   * Converts an attachment's raw bytes to Markdown via officeparser, based
-   * on its filename's extension. Returns null (never throws) when the
-   * extension is unsupported or the conversion itself fails — the caller
-   * falls back to returning the raw bytes untouched.
-   *
-   * The extension is passed to officeparser as an explicit `fileType` hint,
-   * not left to its Buffer magic-byte auto-detection: csv/md/html have no
-   * magic bytes at all, so auto-detection fails outright for exactly those
-   * formats without this hint.
+   * Converts raw bytes to Markdown via officeparser, by extension. Returns null
+   * (never throws) when unsupported or conversion fails — caller falls back to raw bytes.
+   * Passes the extension as an explicit `fileType` hint (csv/md/html have no magic bytes,
+   * so auto-detection fails without it) and OCRs embedded images/scanned pages, rendered
+   * as text only. Runs on every call, even a cache hit — Markdown itself is never cached.
    */
   async convertToMarkdown(filename: string, buffer: Buffer): Promise<string | null> {
     const extension = this.extensionOf(filename);
     if (!SUPPORTED_EXTENSIONS.has(extension as SupportedFileType)) return null;
 
     try {
-      const ast = await OfficeParser.parseOffice(buffer, { fileType: extension as SupportedFileType });
-      const { value } = await ast.to('md');
+      const ast = await OfficeParser.parseOffice(buffer, {
+        fileType: extension as SupportedFileType,
+        extractAttachments: true,
+        ocr: true
+      });
+      const { value } = await ast.to('md', { includeImages: 'ocr-text-only' });
       return value;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
