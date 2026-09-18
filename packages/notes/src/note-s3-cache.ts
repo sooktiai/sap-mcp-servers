@@ -19,11 +19,16 @@ import type { SapNoteDetail } from './types.js';
  * convention only.
  */
 export class SapNoteS3Cache {
-  private readonly bucket = process.env.SAP_NOTES_CACHE_BUCKET;
-  private client: S3Client | null = null;
+  private readonly bucket: string | undefined;
+  private client: S3Client | null;
+  private readonly clientOverride?: Pick<S3Client, 'send'>;
 
-  /** @param client - Injectable for tests; defaults to a real S3Client. */
-  constructor(private readonly clientOverride?: Pick<S3Client, 'send'>) {}
+  /** @param clientOverride - Injectable for tests; defaults to a real S3Client. */
+  constructor(clientOverride?: Pick<S3Client, 'send'>) {
+    this.bucket = process.env.SAP_NOTES_CACHE_BUCKET;
+    this.client = null;
+    this.clientOverride = clientOverride;
+  }
 
   private getClient(): Pick<S3Client, 'send'> {
     if (this.clientOverride) return this.clientOverride;

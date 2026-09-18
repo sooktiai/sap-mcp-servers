@@ -37,6 +37,18 @@ export interface SapNoteDetail extends SapNote {
   content: string;
 }
 
+// SAP Note attachment content, fetched/converted on demand by the attachment resource
+export interface SapNoteAttachmentResult {
+  filename: string;
+  /** Markdown produced by officeparser, when the extension is one it supports. */
+  markdown: string | null;
+  /** Raw bytes, always present — the fallback when markdown conversion isn't available. */
+  raw: {
+    base64: string;
+    contentType?: string;
+  };
+}
+
 // Authentication method type
 export type AuthMethod = 'certificate' | 'password' | 'auto';
 

@@ -6,7 +6,8 @@ import {
   extractSapNotesBackendError,
   isAuthenticationBootstrapResponse,
   mapSapNotesSearchResponse,
-  parseODataDate
+  parseODataDate,
+  withAttachmentResourceUris
 } from '../dist/sap-notes-backend.js';
 
 test('buildSapNotesSearchParams escapes OData apostrophes and bounds the result count', () => {
@@ -95,4 +96,33 @@ test('isAuthenticationBootstrapResponse recognizes auth status and SAP HTML stub
   );
   assert.equal(isAuthenticationBootstrapResponse(200, 'application/json', '{}'), false);
   assert.equal(isAuthenticationBootstrapResponse(500, 'text/html', '<h1>Backend error</h1>'), false);
+});
+
+test('withAttachmentResourceUris attaches a notes://{id}/attachments/{filename} URI, URL-encoding the filename', () => {
+  const result = withAttachmentResourceUris('2744792', [
+    { filename: 'steps.pdf', url: 'https://example.test/steps.pdf' },
+    { filename: 'Pasted image.png', url: 'https://example.test/image.png' }
+  ]);
+
+  assert.deepEqual(result, [
+    {
+      filename: 'steps.pdf',
+      url: 'https://example.test/steps.pdf',
+      resourceUri: 'notes://2744792/attachments/steps.pdf'
+    },
+    {
+      filename: 'Pasted image.png',
+      url: 'https://example.test/image.png',
+      resourceUri: 'notes://2744792/attachments/Pasted%20image.png'
+    }
+  ]);
+});
+
+test('withAttachmentResourceUris preserves an attachment with no url', () => {
+  const result = withAttachmentResourceUris('2744792', [{ filename: 'no-url.txt' }]);
+
+  assert.deepEqual(result, [{
+    filename: 'no-url.txt',
+    resourceUri: 'notes://2744792/attachments/no-url.txt'
+  }]);
 });

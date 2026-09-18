@@ -297,9 +297,10 @@ export const NoteGetOutputSchema = {
     .array(z.object({
       filename: z.string(),
       url: z.string().optional(),
+      resourceUri: z.string().optional(),
     }))
     .optional()
-    .describe('File attachments included with the note.'),
+    .describe('File attachments included with the note. resourceUri (notes://{id}/attachments/{filename}) can be read via the attachment resource for Markdown-converted content.'),
 
   downloadUrl: z
     .string()
